@@ -22,10 +22,19 @@ struct Range {
     max: usize,
 }
 
+// There are 4 directions from an island. The ordering is N S W E,
+// so that "idx ^ 1" gives the index of the bridge going the other
+// way.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+enum Direction {
+    North = 0,
+    South = 1,
+    West = 2,
+    East = 3,
+}
+
 // An island has 4 neighbour directions, for which we track the number
-// of bridges, and a valence - the total number of bridges it has. The
-// bridge array goes N S W E, so that "idx ^ 1" gives the index of the
-// bridge going the other way.
+// of bridges, and a valence - the total number of bridges it has.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Island {
    bridges: [Range;4],
@@ -47,6 +56,23 @@ enum Cell {
 // lot of room for optimisation with clever data structures, but it's
 // simple. I like simple.
 struct Map(Vec<Vec<Cell>>);
+
+// The (x, y) steps to move N S W E respectively.
+const DIRECTION_STEPS: &[(isize, isize); 4] = &[(0, -1), (0, 1), (-1, 0), (1, 0)];
+
+impl Direction {
+    fn step(&self) -> (isize, isize) {
+        DIRECTION_STEPS[*self as usize]
+    }
+
+    fn is_horizontal(&self) -> bool {
+        *self >= Direction::West
+    }
+
+    fn is_vertical(&self) -> bool {
+        *self <= Direction::South
+    }
+}
 
 impl Island {
      fn new(max_bridges: usize, valence: usize) -> Island {
@@ -121,6 +147,83 @@ fn display_map(map: &Map) -> String {
    map.0.iter().map(|row| {
        row.iter().map(|c| c.to_char()).collect::<String>()
    }).collect::<Vec<_>>().join("\n")
+}
+
+////////////////////////////////////////////////////////////////////////
+// Operations on the map
+//
+
+impl Map {
+    fn find_neighbour(&self, x: usize, y: usize, dir: Direction) -> Option<(usize, usize)> {
+        let cells = &self.0;
+        let (mut idx_x, mut idx_y) = (x as isize, y as isize);
+        let (len_x, len_y) = (cells[0].len() as isize, cells.len() as isize);
+        let (step_x, step_y) = dir.step();
+        loop {
+            idx_x += step_x;
+            idx_y += step_y;
+            if idx_x < 0 || idx_x >= len_x || idx_y < 0 || idx_y >= len_y {
+                return None;
+            }
+            match cells[idx_y as usize][idx_x as usize] {
+                Cell::HBridge(_) => if dir.is_vertical() {
+                    return None;
+                },
+                Cell::VBridge(_) => if dir.is_horizontal() {
+                    return None;
+                },
+                Cell::Island(_) => return Some((idx_x as usize, idx_y as usize)),
+                Cell::Empty => (),
+            }
+        }
+    }
+
+    fn paint_bridge(&mut self, x: usize, y: usize, dir: Direction, n_bridges: usize) {
+        let brush = if dir.is_horizontal() {
+            Cell::HBridge(n_bridges)
+        } else {
+            Cell::VBridge(n_bridges)
+        };
+
+        let cells = &mut self.0;
+        let (mut idx_x, mut idx_y) = (x as isize, y as isize);
+        let (len_x, len_y) = (cells[0].len() as isize, cells.len() as isize);
+        let (step_x, step_y) = dir.step();
+
+        // This could be a lot simpler, but we'll be paranoid about
+        // painting over the wrong thing.
+        loop {
+            idx_x += step_x;
+            idx_y += step_y;
+            assert!(0 <= idx_x && idx_x < len_x);
+            assert!(0 <= idx_y && idx_y < len_y);
+
+            let cell = &mut cells[idx_y as usize][idx_x as usize];
+            // How many bridges there already?
+            let n_existing: usize = match cell {
+                Cell::Empty => 0,
+                Cell::HBridge(n) => {
+                    assert!(dir.is_horizontal());
+                    *n
+                }
+                Cell::VBridge(n) => {
+                    assert!(dir.is_vertical());
+                    *n
+                }
+                // If we hit an island, we're done.
+                Cell::Island(_) => return,
+            };
+
+            // We only add bridges.
+            assert!(n_existing <= n_bridges);
+            // Right number already present - we're done.
+            if n_existing == n_bridges {
+                return;
+            }
+            // Otherwise, paint and continue.
+            *cell = brush.clone();
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -238,19 +341,135 @@ mod tests {
         assert_eq!(output, "-=7\n|H.");
     }
 
+    fn spaceless(s: &str) -> String {
+        s.to_string().chars().filter(|c| *c != ' ').collect::<String>()
+    }
+
     #[test]
     fn test_parse_print_round_trip() {
         // remove_matches is currently only in nightly.
-        let input = "......
-                     .1--2.
-                     .|..H.
-                     .3==4.
-                     ......"
-            .to_string()
-            .chars()
-            .filter(|c| *c != ' ')
-            .collect::<String>();
+        let input = spaceless("......
+                               .1--2.
+                               .|..H.
+                               .3==4.
+                               ......");
         let output = display_map(&read_map(input.lines()).unwrap());
         assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_find_neighbour() {
+        let input = "......
+                     .1.3.5
+                     ......
+                     ......
+                     ...2..";
+        let m = read_map(input.lines()).unwrap();
+
+        assert_eq!(m.find_neighbour(3, 1, Direction::North), None);
+        assert_eq!(m.find_neighbour(3, 1, Direction::South), Some((3, 4)));
+
+        assert_eq!(m.find_neighbour(3, 1, Direction::West), Some((1, 1)));
+        assert_eq!(m.find_neighbour(3, 1, Direction::East), Some((5, 1)));
+
+        assert_eq!(m.find_neighbour(5, 1, Direction::East), None);
+        assert_eq!(m.find_neighbour(3, 4, Direction::South), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_paint_off_edge_fails() {
+        let input = "...
+                     .1.
+                     ...";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(1, 1, Direction::East, 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_paint_removal_fails() {
+        let input = ".....
+                     .1=2.
+                     .....";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(1, 1, Direction::East, 1);
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_paint_crossing_fails() {
+        let input = "...3...
+                     .1.|.2.
+                     ...4...";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(1, 1, Direction::East, 1);
+    }
+
+    #[test]
+    fn test_paint_horizontal() {
+        let input = "...3...
+                     .1...2.
+                     ...4...";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(1, 1, Direction::East, 1);
+
+        let expected = spaceless("...3...
+                                  .1---2.
+                                  ...4...");
+        assert_eq!(display_map(&m), expected);
+    }
+
+    #[test]
+    fn test_paint_vertical() {
+        let input = "...3...
+                     .1...2.
+                     ...4...";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(3, 0, Direction::South, 1);
+
+        let expected = spaceless("...3...
+                                  .1.|.2.
+                                  ...4...");
+        assert_eq!(display_map(&m), expected);
+    }
+
+    #[test]
+    fn test_overpaint() {
+        let input = "...3...
+                     .1---2.
+                     ...4...";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(1, 1, Direction::East, 2);
+
+        let expected = spaceless("...3...
+                                  .1===2.
+                                  ...4...");
+        assert_eq!(display_map(&m), expected);
+    }
+
+    #[test]
+    fn test_zero_paint_noop() {
+        let input = "...3...
+                     .1...2.
+                     ...4...";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(5, 1, Direction::West, 0);
+
+        let expected = spaceless(input);
+        assert_eq!(display_map(&m), expected);
+    }
+
+    #[test]
+    fn test_same_paint_noop() {
+        let input = "...3...
+                     .1===2.
+                     ...4...";
+        let mut m = read_map(input.lines()).unwrap();
+        m.paint_bridge(5, 1, Direction::West, 2);
+
+        let expected = spaceless(input);
+        assert_eq!(display_map(&m), expected);
     }
 }
