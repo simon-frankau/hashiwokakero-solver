@@ -26,9 +26,7 @@ struct Range {
     max: usize,
 }
 
-// There are 4 directions from an island. The ordering is N S W E,
-// so that "idx ^ 1" gives the index of the bridge going the other
-// way.
+// There are 4 directions from an island.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 enum Direction {
     North = 0,
@@ -59,6 +57,7 @@ enum Cell {
 // N-S, inner index is W-E, [0][0] represents the NW corner). We leave a
 // lot of room for optimisation with clever data structures, but it's
 // simple. I like simple.
+#[derive(Debug)]
 struct Map(Vec<Vec<Cell>>);
 
 // The (x, y) steps to move N S W E respectively.
@@ -76,6 +75,17 @@ impl Direction {
     fn is_vertical(&self) -> bool {
         *self <= Direction::South
     }
+
+    fn flip(&self) -> Direction {
+        // self ^ 1 also flips direction, but Rust doesn't provide a simple
+        // way to go from integer to enum entry.
+        match *self {
+            Direction::North => Direction::South,
+            Direction::South => Direction::North,
+            Direction::West => Direction::East,
+            Direction::East => Direction::West,
+        }
+    }
 }
 
 impl Island {
@@ -85,6 +95,15 @@ impl Island {
              valence,
          }
      }
+
+     fn bridge(&self, dir: Direction) -> Range {
+         self.bridges[dir as usize]
+     }
+
+     fn bridge_mut(&mut self, dir: Direction) -> &mut Range {
+         &mut self.bridges[dir as usize]
+     }
+
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -227,6 +246,38 @@ impl Map {
             // Otherwise, paint and continue.
             *cell = brush.clone();
         }
+    }
+
+    fn get_island(&mut self, x: usize, y: usize) -> &mut Island {
+        if let Cell::Island(ref mut isle) = self.0[y][x] {
+            isle
+        } else {
+            panic!("Expected island at ({}, {})", x, y);
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////
+// Constraining steps
+//
+
+// Propagate constraints across bridges end-points: The min/max at one
+// end of a possible bridge is constrained by the min/max at the other,
+// and if there's no other end, the min/max is 0.
+fn propagate_constraints(m: &mut Map, x: usize, y: usize) {
+    for dir in [Direction::North, Direction::South, Direction::West, Direction::East].iter() {
+        let far_end = m.find_neighbour(x, y, *dir);
+        let far_range = match far_end {
+            Some((far_x, far_y)) => m.get_island(far_x, far_y).bridge(dir.flip()),
+            None => Range { min: 0, max: 0 },
+        };
+
+        let mut near_range = m.get_island(x, y).bridge_mut(*dir);
+
+        // Min bridges only ratchets up with constraints, max bridges
+        // ratchets down.
+        near_range.min = near_range.min.max(far_range.min);
+        near_range.max = near_range.max.min(far_range.max);
     }
 }
 
@@ -517,5 +568,29 @@ mod tests {
 
         let expected = spaceless(input);
         assert_eq!(display_map(&m), expected);
+    }
+
+    #[test]
+    fn test_propagate_constraints() {
+        let input = ".....
+                     .3.1.
+                     .....
+                     .....
+                     .3.1.";
+        let mut m = read_map(input.lines()).unwrap();
+
+        // Force the max/min values on a couple of island directions..
+        *m.get_island(1, 4).bridge_mut(Direction::North) = Range { max: 2, min: 2 };
+        *m.get_island(3, 1).bridge_mut(Direction::West) = Range { min: 0, max: 1 };
+
+        // Propagate these values...
+        propagate_constraints(&mut m, 1, 1);
+
+        // And check they propagated correctly.
+        let isle = m.get_island(1, 1);
+        assert_eq!(isle.bridge(Direction::North), Range { min: 0, max: 0 });
+        assert_eq!(isle.bridge(Direction::South), Range { min: 2, max: 2 });
+        assert_eq!(isle.bridge(Direction::West), Range { min: 0, max: 0 });
+        assert_eq!(isle.bridge(Direction::East), Range { min: 0, max: 1 });
     }
 }
