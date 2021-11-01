@@ -1,7 +1,8 @@
 # A hashiwokakero solver
 
 This program is a solver for the
-[Hashiwokakero](https://en.wikipedia.org/wiki/Hashiwokakero) puzzle.
+[Hashiwokakero](https://en.wikipedia.org/wiki/Hashiwokakero) puzzle
+(aka "Hashi" or "Bridges").
 
 ## How it works
 
@@ -26,14 +27,37 @@ work" case, as well as not having any valid moves remaining.
 
 # How to use it
 
-TODO
+The input format is as follows:
+
+ * The input must be a rectangular grid.
+ * The numbers 1-8 represent islands with that much valence.
+ * Empty cells are represented as with a period ('.').
+
+Comments, starting with '#', through to the end of a line, are
+ignored. Empty lines are ignored. Leading and trailing whitespace are
+ignored.
+
+For example, input can like this:
+
+`
+# This is a very, very simple Hashi puzzle.
+
+   .....
+   .2.1.
+   .....
+   .1... # Why am I putting a comment here? Because I can.
+   .....
+
+# Goodbye.
+`
 
 # Development notes
 
 Current plan:
 
- * Define data structures
- * Build parser/printer
+ * -Define data structures-
+ * -Build parser/printer-
+ * Add a really basic command-line
  * Add code to constrain locally
  * Add code to propagate constraints
  * Add code to draw in bridges
