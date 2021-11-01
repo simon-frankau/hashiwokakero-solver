@@ -4,7 +4,11 @@
 // Copyright 2021 Simon Frankau
 //
 
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, stdin, stdout, Write};
+
 use anyhow::{bail, ensure, Result};
+use clap::Parser;
 
 ////////////////////////////////////////////////////////////////////////
 // Data structures / problem representation
@@ -230,9 +234,51 @@ impl Map {
 // Main entry point
 //
 
+#[derive(Parser)]
+#[clap(version = "0.1", author = "Simon Frankau <sgf@arbitrary.name>")]
+#[clap(about = "Hashiwokakero (Bridges) puzzle solver")]
+struct Opts {
+    /// Input file. Uses stdin if none specified.
+    #[clap(long)]
+    input_file: Option<String>,
+    /// Output file. Uses stdin if none specified.
+    #[clap(long)]
+    output_file: Option<String>,
+    /// Maximum number of bridges between islands.
+    #[clap(long, default_value = "2")]
+    max_bridges: usize,
+}
+
+fn read_input(opts: &Opts) -> Result<Vec<String>> {
+    let file: Box<dyn Read> = match &opts.input_file {
+        Some(name) => Box::new(File::open(name)?),
+        None => Box::new(stdin()),
+    };
+
+    Ok(BufReader::new(file).lines().collect::<Result<Vec<_>, _>>()?)
+}
+
+fn write_output(opts: &Opts, s: &str) -> Result<()> {
+   let mut file: Box<dyn Write> = match &opts.output_file {
+        Some(name) => Box::new(File::create(name)?),
+        None => Box::new(stdout()),
+    };
+
+    Ok(file.write_all(&s.as_bytes())?)
+}
+
 fn main() -> Result<()>{
-    // TODO!
-    println!("Hello, world!");
+    let opts: Opts = Opts::parse();
+
+    ensure!(1 <= opts.max_bridges && opts.max_bridges <= 2,
+        "--max_bridges must be 1 or 2");
+
+    let input_map = read_map(read_input(&opts)?.iter().map(String::as_str))?;
+
+    let output_string = display_map(&input_map);
+
+    write_output(&opts, &output_string)?;
+
     Ok(())
 }
 
