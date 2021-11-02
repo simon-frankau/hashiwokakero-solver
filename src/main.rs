@@ -281,6 +281,63 @@ fn propagate_constraints(m: &mut Map, x: usize, y: usize) {
     }
 }
 
+// Generate all the ways to distribute the valence across the set of
+// bridge endpoints - returns a list of allocations such that the
+// value for each endpoint is between min and max, and they sum to the
+// valence.
+fn generate_distributions(isle: &Island) -> Vec<[usize;4]> {
+    // There's no clean way to make recursive closures, so we live with
+    // a nested function and passing all variables explicitly.
+    fn aux(
+        isle: &Island,
+        acc: &mut Vec<[usize;4]>,
+        mut curr: [usize; 4],
+        idx: usize,
+        remaining: usize
+    ) {
+        if idx == 4 {
+            if remaining == 0 {
+                acc.push(curr.clone());
+            }
+            return;
+        }
+
+        let r = isle.bridges[idx];
+        if r.min > remaining {
+            return;
+        }
+        for n in (r.min)..=(r.max.min(remaining)) {
+            curr[idx] = n;
+            aux(isle, acc, curr, idx + 1, remaining - n);
+        }
+    }
+
+    let mut v: Vec<[usize; 4]> = Vec::new();
+    aux(&isle, &mut v, [0; 4], 0, isle.valence);
+    v
+}
+
+// Given the valence, update the min/max ranges. This implements the
+// pigeonhole principle constraints - if we have 2 neighbours, and
+// a maximum of 2 bridges per neighbour, and a valence of 3, we
+// *must* have at least one bridge per neighbour.
+fn apply_valence_constraints(isle: &mut Island) {
+    let distributions = generate_distributions(isle);
+
+    if distributions.is_empty() {
+        panic!("No solution");
+    }
+
+    // The distributions are already guaranteed to be within the
+    // min/max bounds, so the updated bounds will just be the min/max
+    // of the generated possibilities
+    for idx in 0..isle.bridges.len() {
+        let min = distributions.iter().map(|v| v[idx]).min().unwrap();
+        let max = distributions.iter().map(|v| v[idx]).max().unwrap();
+        isle.bridges[idx] = Range { min, max }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////
 // Main entry point
 //
@@ -592,5 +649,91 @@ mod tests {
         assert_eq!(isle.bridge(Direction::South), Range { min: 2, max: 2 });
         assert_eq!(isle.bridge(Direction::West), Range { min: 0, max: 0 });
         assert_eq!(isle.bridge(Direction::East), Range { min: 0, max: 1 });
+    }
+
+    #[test]
+    fn test_generate_distributions() {
+        let isle = Island {
+            bridges: [
+                Range { min: 0, max: 2 },
+                Range { min: 0, max: 2 },
+                Range { min: 1, max: 2 },
+                Range { min: 0, max: 2 },
+            ],
+            valence: 4,
+        };
+
+        let mut dists = generate_distributions(&isle);
+        // Avoid making assumptions about the order it generates items in.
+        dists.sort();
+
+        let expected = [
+            [0, 0, 2, 2],
+            [0, 1, 1, 2],
+            [0, 1, 2, 1],
+            [0, 2, 1, 1],
+            [0, 2, 2, 0],
+            [1, 0, 1, 2],
+            [1, 0, 2, 1],
+            [1, 1, 1, 1],
+            [1, 1, 2, 0],
+            [1, 2, 1, 0],
+            [2, 0, 1, 1],
+            [2, 0, 2, 0],
+            [2, 1, 1, 0],
+        ];
+        assert_eq!(&dists, &expected);
+    }
+
+    #[test]
+    fn test_apply_valence_constraints_partial() {
+        let mut isle = Island {
+            bridges: [
+                Range { min: 0, max: 0 },
+                Range { min: 0, max: 0 },
+                Range { min: 0, max: 2 },
+                Range { min: 0, max: 2 },
+            ],
+            valence: 3,
+        };
+
+        apply_valence_constraints(&mut isle);
+
+        let expected = Island {
+            bridges: [
+                Range { min: 0, max: 0 },
+                Range { min: 0, max: 0 },
+                Range { min: 1, max: 2 },
+                Range { min: 1, max: 2 }
+            ],
+            valence: 3
+        };
+        assert_eq!(&isle, &expected);
+    }
+
+    #[test]
+    fn test_apply_valence_constraints_full() {
+        let mut isle = Island {
+            bridges: [
+                Range { min: 0, max: 0 },
+                Range { min: 0, max: 0 },
+                Range { min: 0, max: 1 },
+                Range { min: 0, max: 2 },
+            ],
+            valence: 3,
+        };
+
+        apply_valence_constraints(&mut isle);
+
+        let expected = Island {
+            bridges: [
+                Range { min: 0, max: 0 },
+                Range { min: 0, max: 0 },
+                Range { min: 1, max: 1 },
+                Range { min: 2, max: 2 }
+            ],
+            valence: 3
+        };
+        assert_eq!(&isle, &expected);
     }
 }

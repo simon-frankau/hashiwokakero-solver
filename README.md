@@ -58,7 +58,7 @@ Current plan:
  * -Define data structures-
  * -Build parser/printer-
  * -Add a really basic command-line-
- * Add code to constrain locally
+ * -Add code to constrain locally-
  * -Add code to propagate constraints-
  * Add code to draw in bridges
  * Add code to perform case splits
