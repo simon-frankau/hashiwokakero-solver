@@ -556,7 +556,11 @@ fn main() -> Result<()>{
 
     let input_map = read_map(read_input(&opts)?.iter().map(String::as_str))?;
 
-    let output_string = display_map(&input_map);
+    let output_string = solve(&input_map)
+        .iter()
+        .map(display_map)
+        .collect::<Vec<_>>()
+        .join("\n\n");
 
     write_output(&opts, &output_string)?;
 
