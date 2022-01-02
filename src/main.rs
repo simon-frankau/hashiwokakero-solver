@@ -58,7 +58,7 @@ enum Cell {
 // N-S, inner index is W-E, [0][0] represents the NW corner). We leave a
 // lot of room for optimisation with clever data structures, but it's
 // simple. I like simple.
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Map(Vec<Vec<Cell>>);
 
 const ALL_DIRS: &[Direction] = &[
@@ -439,12 +439,76 @@ fn constrain_pass(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
     }
 }
 
-// Constrain until a solution (or failure is reached.
+// Constrain until a solution or failure or stuckness is reached.
 fn constrain(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
     while !m.is_solved() {
         constrain_pass(m)?;
     }
     Ok(())
+}
+
+// If we do something clever around choosing what to case split on,
+// this is where we'd do it. As such, it's a bit of a placeholder right
+// now, and just finds the very first possibility.
+//
+// Returns (x, y, dir) to do the case split on.
+fn choose_case_split(m: &Map) -> (usize, usize, Direction) {
+    let cells = &m.0;
+    let (width, height) = (cells[0].len(), cells.len());
+    for y in 0..height {
+        for x in 0..width {
+            if let Cell::Island(isle) = &m.0[y][x] {
+                for dir in ALL_DIRS.iter() {
+                    let range = isle.bridge(*dir);
+                    if range.min != range.max {
+                        // Multiple possibilities, can perform case split here.
+                        return (x, y, *dir);
+                    }
+                }
+            }
+        }
+    }
+
+    panic!("Shouldn't happen: Nothing to case split on.")
+}
+
+// Find all solutions by applying case splits as necessary. Works by
+// vanilla recursion, so you need a reasonable size stack for lots of
+// splits (although if you're searching a large number of splits,
+// it'll probably be quite slow!).
+//
+// This is an auxiliary function to solve, and takes ownership of the
+// provided map.
+fn accumulate_solutions(mut map: Map, solutions: &mut Vec<Map>) {
+    match constrain(&mut map) {
+        Ok(()) => solutions.push(map),
+        Err(ConstraintSolverFailure::NoSolutions) => (),
+        Err(ConstraintSolverFailure::Stuck) => {
+            let (x, y, dir) = choose_case_split(&map);
+            if let Cell::Island(isle) = &map.0[y][x] {
+                let range = isle.bridge(dir);
+                for n in range.min..=range.max {
+                    let mut new_map = map.clone();
+                    if let Cell::Island(isle2) = &mut new_map.0[y][x] {
+                        let bridge = isle2.bridge_mut(dir);
+                         *bridge = Range { min: n, max: n };
+                        accumulate_solutions(new_map, solutions);
+                    } else {
+                        panic!("Expected Island in new map");
+                    }
+                }
+            } else {
+                panic!("Expected Island in old map");
+           }
+        },
+    }
+}
+
+// Find all solutions.
+fn solve(map: &Map) -> Vec<Map> {
+    let mut solutions = Vec::new();
+    accumulate_solutions(map.clone(), &mut solutions);
+    solutions
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -909,12 +973,69 @@ mod tests {
         assert_eq!(display_map(&m), expected);
     }
 
-   // TODO: For case splits
-/*
+    #[test]
+    fn test_solve_simple_no_solution() {
+        let input = ".1.";
+        let mut m = read_map(input.lines()).unwrap();
+
+        assert_eq!(constrain(&mut m),
+            Err(ConstraintSolverFailure::NoSolutions));
+    }
+
+    #[test]
+    fn test_solve_simple_stuck() {
         let input = ".2.1.
                      .....
                      .2.2.
                      .....
                      .1.2.";
-*/
+        let mut m = read_map(input.lines()).unwrap();
+
+        assert_eq!(constrain(&mut m),
+            Err(ConstraintSolverFailure::Stuck));
+    }
+
+    #[test]
+    fn test_solve_split() {
+        let input = ".2.1.
+                     .....
+                     .2.2.
+                     .....
+                     .1.2.";
+        let m = read_map(input.lines()).unwrap();
+
+        let sol1 = spaceless(".2-1.
+                              .|...
+                              .2-2.
+                              ...|.
+                              .1-2.");
+        let sol2 = spaceless(".2-1.
+                              .|...
+                              .2.2.
+                              .|.H.
+                              .1.2.");
+        let sol3 = spaceless(".2.1.
+                              .H.|.
+                              .2.2.
+                              ...|.
+                              .1-2.");
+        let mut expected = vec![sol1, sol2, sol3];
+        expected.sort();
+
+        let mut actual = solve(&m)
+            .iter()
+            .map(display_map)
+            .collect::<Vec<String>>();
+        actual.sort();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_solve_split_no_solution() {
+        let input = ".1.";
+        let m = read_map(input.lines()).unwrap();
+
+        assert_eq!(solve(&m).len(), 0);
+    }
 }
