@@ -9,6 +9,7 @@ use std::io::{BufRead, BufReader, Read, stdin, stdout, Write};
 
 use anyhow::{bail, ensure, Result};
 use clap::Parser;
+use thiserror::Error;
 
 ////////////////////////////////////////////////////////////////////////
 // Data structures / problem representation
@@ -287,10 +288,22 @@ impl Map {
 // Constraining steps
 //
 
+#[derive(Debug, Eq, Error, PartialEq)]
+enum ConstraintSolverFailure {
+    // There's some kind of contradiction, meaning no solution is possible.
+    #[error("No solution is possible for this configuration")]
+    NoSolutions,
+    // We can't make further progress. Either this is a tricky case the
+    // constraint solved can't handle, or there are multiple solutions,
+    // meaning we can't find a unique path forwards.
+    #[error("No unique solution can be found by constraint-solving")]
+    Stuck,
+}
+
 // Propagate constraints across bridges end-points: The min/max at one
 // end of a possible bridge is constrained by the min/max at the other,
 // and if there's no other end, the min/max is 0.
-fn propagate_constraints(m: &mut Map, x: usize, y: usize) {
+fn propagate_constraints(m: &mut Map, x: usize, y: usize) -> Result<(), ConstraintSolverFailure> {
     for dir in ALL_DIRS.iter() {
         let far_end = m.find_neighbour(x, y, *dir);
         let far_range = match far_end {
@@ -304,7 +317,14 @@ fn propagate_constraints(m: &mut Map, x: usize, y: usize) {
         // ratchets down.
         near_range.min = near_range.min.max(far_range.min);
         near_range.max = near_range.max.min(far_range.max);
+
+        // If the values cross over, something's gone wrong!
+        if near_range.min > near_range.max {
+            return Err(ConstraintSolverFailure::NoSolutions);
+        }
     }
+
+    Ok(())
 }
 
 // Generate all the ways to distribute the valence across the set of
@@ -347,11 +367,11 @@ fn generate_distributions(isle: &Island) -> Vec<[usize;4]> {
 // pigeonhole principle constraints - if we have 2 neighbours, and
 // a maximum of 2 bridges per neighbour, and a valence of 3, we
 // *must* have at least one bridge per neighbour.
-fn apply_valence_constraints(isle: &mut Island) {
+fn apply_valence_constraints(isle: &mut Island) -> Result<(), ConstraintSolverFailure> {
     let distributions = generate_distributions(isle);
 
     if distributions.is_empty() {
-        panic!("No solution");
+        return Err(ConstraintSolverFailure::NoSolutions);
     }
 
     // The distributions are already guaranteed to be within the
@@ -362,21 +382,13 @@ fn apply_valence_constraints(isle: &mut Island) {
         let max = distributions.iter().map(|v| v[idx]).max().unwrap();
         isle.bridges[idx] = Range { min, max }
     }
+
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////
 // Solving algorithm
 //
-
-#[derive(Debug, Eq, PartialEq)]
-enum ConstraintSolverFailure {
-    // There's some kind of contradiction, meaning no solution is possible.
-    NoSolutions,
-    // We can't make further progress. Either this is a tricky case the
-    // constraint solved can't handle, or there are multiple solutions,
-    // meaning we can't find a unique path forwards.
-    Stuck,
-}
 
 // Perform a constraints update on a single island. Failure to
 // constrain further is not an error, we just return true if constraints
@@ -384,9 +396,9 @@ enum ConstraintSolverFailure {
 fn constrain_island(m: &mut Map, x: usize, y: usize) -> Result<bool, ConstraintSolverFailure> {
     let before = m.get_island(x, y).clone();
 
-    propagate_constraints(m, x, y);
+    propagate_constraints(m, x, y)?;
     let island = m.get_island(x, y);
-    apply_valence_constraints(island);
+    apply_valence_constraints(island)?;
 
     let changed = *island != before;
 
@@ -404,8 +416,6 @@ fn constrain_island(m: &mut Map, x: usize, y: usize) -> Result<bool, ConstraintS
     }
 
     Ok(changed)
-
-    // TODO: Contradictions should be returned as errors.
 }
 
 // Perform a single constraint-solving pass over the entire map.
@@ -727,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn test_propagate_constraints() {
+    fn test_propagate_constraints() -> Result<()> {
         let input = ".....
                      .3.1.
                      .....
@@ -740,7 +750,7 @@ mod tests {
         *m.get_island(3, 1).bridge_mut(Direction::West) = Range { min: 0, max: 1 };
 
         // Propagate these values...
-        propagate_constraints(&mut m, 1, 1);
+        propagate_constraints(&mut m, 1, 1)?;
 
         // And check they propagated correctly.
         let isle = m.get_island(1, 1);
@@ -748,6 +758,24 @@ mod tests {
         assert_eq!(isle.bridge(Direction::South), Range { min: 2, max: 2 });
         assert_eq!(isle.bridge(Direction::West), Range { min: 0, max: 0 });
         assert_eq!(isle.bridge(Direction::East), Range { min: 0, max: 1 });
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_propagate_constraints_failure() {
+        let input = ".3.1.";
+        let mut m = read_map(input.lines()).unwrap();
+
+        // Force the max/min values on a couple of island directions..
+        *m.get_island(1, 0).bridge_mut(Direction::East) = Range { max: 3, min: 3 };
+        *m.get_island(3, 0).bridge_mut(Direction::West) = Range { min: 1, max: 1 };
+
+        // Propagate these values. Should fail.
+        match propagate_constraints(&mut m, 1, 0) {
+            Result::Err(ConstraintSolverFailure::NoSolutions) => (),
+            e => panic!("Unexpected result: {:?}", e),
+        }
     }
 
     #[test]
@@ -785,7 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_valence_constraints_partial() {
+    fn test_apply_valence_constraints_partial() -> Result<()> {
         let mut isle = Island {
             bridges: [
                 Range { min: 0, max: 0 },
@@ -796,7 +824,7 @@ mod tests {
             valence: 3,
         };
 
-        apply_valence_constraints(&mut isle);
+        apply_valence_constraints(&mut isle)?;
 
         let expected = Island {
             bridges: [
@@ -808,10 +836,12 @@ mod tests {
             valence: 3
         };
         assert_eq!(&isle, &expected);
+
+        Ok(())
     }
 
     #[test]
-    fn test_apply_valence_constraints_full() {
+    fn test_apply_valence_constraints_full() -> Result<()> {
         let mut isle = Island {
             bridges: [
                 Range { min: 0, max: 0 },
@@ -822,7 +852,7 @@ mod tests {
             valence: 3,
         };
 
-        apply_valence_constraints(&mut isle);
+        apply_valence_constraints(&mut isle)?;
 
         let expected = Island {
             bridges: [
@@ -834,6 +864,26 @@ mod tests {
             valence: 3
         };
         assert_eq!(&isle, &expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_valence_constraints_failure() {
+        let mut isle = Island {
+            bridges: [
+                Range { min: 0, max: 0 },
+                Range { min: 0, max: 0 },
+                Range { min: 2, max: 2 },
+                Range { min: 2, max: 2 },
+            ],
+            valence: 3,
+        };
+
+        match apply_valence_constraints(&mut isle) {
+            Result::Err(ConstraintSolverFailure::NoSolutions) => (),
+            e => panic!("Unexpected result: {:?}", e),
+        }
     }
 
     #[test]

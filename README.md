@@ -51,6 +51,15 @@ For example, input can like this:
 # Goodbye.
 `
 
+# Performance
+
+While not deliberately pessimised, using the most efficient algorithms
+is a non-goal. Instead, the aim is to keep the code simple, and
+minimise the number of invariants that must be maintained. For
+example, we scan the full grid each pass to check if it's solved,
+rather than track the current state through a union find algorithm or
+set of currently active nodes or whatever.
+
 # Development notes
 
 Current plan:
