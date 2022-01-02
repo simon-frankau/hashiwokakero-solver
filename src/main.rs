@@ -60,6 +60,13 @@ enum Cell {
 #[derive(Debug)]
 struct Map(Vec<Vec<Cell>>);
 
+const ALL_DIRS: &[Direction] = &[
+    Direction::North,
+    Direction::South,
+    Direction::West,
+    Direction::East
+];
+
 // The (x, y) steps to move N S W E respectively.
 const DIRECTION_STEPS: &[(isize, isize); 4] = &[(0, -1), (0, 1), (-1, 0), (1, 0)];
 
@@ -255,6 +262,25 @@ impl Map {
             panic!("Expected island at ({}, {})", x, y);
         }
     }
+
+    fn is_solved(&self) -> bool {
+        // apply_valence_constraints ensures that whatever ranges
+        // there are, there's a valid way to make them sum to the
+        // valence, so all we need to do is check that all ranges of all
+        // islands have converged.
+        let cells = &self.0;
+        let (width, height) = (cells[0].len(), cells.len());
+        for y in 0..height {
+            for x in 0..width {
+                if let Cell::Island(i) = &cells[y][x] {
+                    if !i.bridges.iter().all(|r| r.min == r.max) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -265,7 +291,7 @@ impl Map {
 // end of a possible bridge is constrained by the min/max at the other,
 // and if there's no other end, the min/max is 0.
 fn propagate_constraints(m: &mut Map, x: usize, y: usize) {
-    for dir in [Direction::North, Direction::South, Direction::West, Direction::East].iter() {
+    for dir in ALL_DIRS.iter() {
         let far_end = m.find_neighbour(x, y, *dir);
         let far_range = match far_end {
             Some((far_x, far_y)) => m.get_island(far_x, far_y).bridge(dir.flip()),
@@ -336,6 +362,79 @@ fn apply_valence_constraints(isle: &mut Island) {
         let max = distributions.iter().map(|v| v[idx]).max().unwrap();
         isle.bridges[idx] = Range { min, max }
     }
+}
+
+////////////////////////////////////////////////////////////////////////
+// Solving algorithm
+//
+
+#[derive(Debug, Eq, PartialEq)]
+enum ConstraintSolverFailure {
+    // There's some kind of contradiction, meaning no solution is possible.
+    NoSolutions,
+    // We can't make further progress. Either this is a tricky case the
+    // constraint solved can't handle, or there are multiple solutions,
+    // meaning we can't find a unique path forwards.
+    Stuck,
+}
+
+// Perform a constraints update on a single island. Failure to
+// constrain further is not an error, we just return true if constraints
+// were tightened further, and false otherwise.
+fn constrain_island(m: &mut Map, x: usize, y: usize) -> Result<bool, ConstraintSolverFailure> {
+    let before = m.get_island(x, y).clone();
+
+    propagate_constraints(m, x, y);
+    let island = m.get_island(x, y);
+    apply_valence_constraints(island);
+
+    let changed = *island != before;
+
+    if changed {
+        // Need to copy as paint_bridge uses a mutable borrow of m.
+        let after = island.clone();
+
+        for dir in ALL_DIRS.iter() {
+            let range = after.bridge(*dir);
+            if range.min == range.max && range.min != 0 {
+                // There is some bridge. Ensure it's up-to-date.
+                m.paint_bridge(x, y, *dir, range.min);
+            }
+        }
+    }
+
+    Ok(changed)
+
+    // TODO: Contradictions should be returned as errors.
+}
+
+// Perform a single constraint-solving pass over the entire map.
+fn constrain_pass(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
+    let mut progress = false;
+
+    let cells = &m.0;
+    let (width, height) = (cells[0].len(), cells.len());
+    for y in 0..height {
+        for x in 0..width {
+            if let Cell::Island(_) = m.0[y][x] {
+                progress |= constrain_island(m, x, y)?;
+            }
+        }
+    }
+
+    if !progress {
+        Err(ConstraintSolverFailure::Stuck)
+    } else {
+        Ok(())
+    }
+}
+
+// Constrain until a solution (or failure is reached.
+fn constrain(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
+    while !m.is_solved() {
+        constrain_pass(m)?;
+    }
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -736,4 +835,36 @@ mod tests {
         };
         assert_eq!(&isle, &expected);
     }
+
+    #[test]
+    fn test_solve_simple() {
+        let input = ".3..1
+                     .....
+                     .3.2.
+                     .....
+                     ...2.
+                     .....
+                     1..2.";
+        let mut m = read_map(input.lines()).unwrap();
+
+        assert!(constrain(&mut m).is_ok());
+
+        let expected = spaceless(".3--1
+                                  .H...
+                                  .3-2.
+                                  ...|.
+                                  ...2.
+                                  ...|.
+                                  1--2.");
+        assert_eq!(display_map(&m), expected);
+    }
+
+   // TODO: For case splits
+/*
+        let input = ".2.1.
+                     .....
+                     .2.2.
+                     .....
+                     .1.2.";
+*/
 }
