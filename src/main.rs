@@ -455,7 +455,7 @@ fn generate_distributions(isle: &Island) -> Vec<[usize;4]> {
     ) {
         if idx == 4 {
             if remaining == 0 {
-                acc.push(curr.clone());
+                acc.push(curr);
             }
             return;
         }
@@ -471,7 +471,7 @@ fn generate_distributions(isle: &Island) -> Vec<[usize;4]> {
     }
 
     let mut v: Vec<[usize; 4]> = Vec::new();
-    aux(&isle, &mut v, [0; 4], 0, isle.valence);
+    aux(isle, &mut v, [0; 4], 0, isle.valence);
     v
 }
 
@@ -640,7 +640,7 @@ fn write_output(opts: &Opts, s: &str) -> Result<()> {
         None => Box::new(stdout()),
     };
 
-    Ok(file.write_all(&s.as_bytes())?)
+    Ok(file.write_all(s.as_bytes())?)
 }
 
 fn main() -> Result<()>{
