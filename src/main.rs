@@ -311,12 +311,19 @@ impl Map {
     }
 
     // Helper function to is_solved.
-    // Returns number of complete components, and incomplete components.
+    // Returns number of complete components, and incomplete subgraphs.
     fn count_components(&self) -> (usize, usize) {
         let mut seen = HashSet::new();
         let mut complete = 0;
         let mut incomplete = 0;
 
+        // 'aux' depth-first searches through complete nodes, trying
+        // to find maximal subgraphs of complete nodes. If the nodes
+        // in such a subgraph have no incomplete neighbours, we have a
+        // complete component and the complete counter is increased by
+        // count_components.
+        //
+        // Otherwise this subgraph is counted as one incomplete subgraph.
         fn aux(
             map: &Map,
             x: usize,
@@ -324,33 +331,34 @@ impl Map {
             seen: &mut HashSet<(usize, usize)>,
             is_complete: &mut bool,
         ) {
-            // Track where we've visited, only process each island once.
+            if !map.get_island(x, y).is_complete() {
+                *is_complete = false;
+                return;
+            }
+
+            // This island is complete. Nothing to do if we've processed
+            // it already.
             if seen.contains(&(x, y)) {
                 return;
             }
+
+            // Otherwise, mark as seen and recurse.
             seen.insert((x, y));
-
-            // Any incompete island in the component makes the component
-            // incomplete.
-            let isle = map.get_island(x, y);
-            if !isle.is_complete() {
-                *is_complete = false;
-            }
-
-            // And recurse to known neighbours.
             for dir in ALL_DIRS.iter().cloned() {
-                if isle.bridge(dir).min > 0 {
-                    let (nx, ny) = map.find_neighbour(x, y, dir).unwrap();
-                    aux(map, nx, ny, seen, is_complete);
+                if map.get_island(x, y).bridge(dir).min > 0 {
+                    if let Some((nx, ny)) = map.find_neighbour(x, y, dir) {
+                        aux(map, nx, ny, seen, is_complete);
+                    }
                 }
             }
         }
 
         for (x, y) in self.island_iter() {
             if !seen.contains(&(x, y)) {
-                // We have found the root of a new component.
+                // We have found the potential root of a new component.
                 let mut is_complete = true;
                 aux(self, x, y, &mut seen, &mut is_complete);
+                seen.insert((x, y));
                 if is_complete {
                     complete += 1;
                 } else {
@@ -675,13 +683,19 @@ fn main() -> Result<()> {
 
     let input_map = read_map(read_input(&opts)?.iter().map(String::as_str))?;
 
-    let output_string = solve(&input_map)
-        .iter()
-        .map(display_map)
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let solutions = solve(&input_map);
 
-    write_output(&opts, &output_string)?;
+    if solutions.is_empty() {
+        eprintln!("No solutions");
+    } else {
+        let output_string = solutions
+            .iter()
+            .map(display_map)
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        write_output(&opts, &output_string)?;
+    }
 
     Ok(())
 }
