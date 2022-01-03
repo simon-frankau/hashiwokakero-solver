@@ -174,17 +174,21 @@ impl Cell {
     }
 }
 
-fn read_map<'a, Iter: std::iter::Iterator<Item = &'a str>>(max_bridges: usize, lines: Iter) -> Result<Map> {
+fn read_map<'a, Iter: std::iter::Iterator<Item = &'a str>>(
+    max_bridges: usize,
+    lines: Iter,
+) -> Result<Map> {
     let map_lines = lines
         // Trim comments and whitespace
         .map(|s| s.find('#').map_or(s, |idx| &s[..idx]).trim())
         // Filter emptys lines
         .filter(|s| !s.is_empty())
         // Convert a single line
-        .map(|s| s
-            .chars()
-            .map(|c| Cell::from_char(max_bridges, c))
-            .collect::<Result<Vec<_>>>())
+        .map(|s| {
+            s.chars()
+                .map(|c| Cell::from_char(max_bridges, c))
+                .collect::<Result<Vec<_>>>()
+        })
         .collect::<Result<Vec<_>>>()?;
 
     ensure!(!map_lines.is_empty(), "Non-empty input line expected");
@@ -686,7 +690,7 @@ fn main() -> Result<()> {
 
     let input_map = read_map(
         opts.max_bridges,
-        read_input(&opts)?.iter().map(String::as_str)
+        read_input(&opts)?.iter().map(String::as_str),
     )?;
 
     let solutions = solve(&input_map);
@@ -751,7 +755,9 @@ mod tests {
         .iter()
         {
             let input: &[&str] = &[row];
-            let output = read_map(DEFAULT_MAX_BRIDGES, input.iter().cloned()).unwrap().0;
+            let output = read_map(DEFAULT_MAX_BRIDGES, input.iter().cloned())
+                .unwrap()
+                .0;
             assert_eq!(output.len(), 1);
             assert_eq!(output[0].len(), 1);
             assert_eq!(output[0][0], *expected);
@@ -766,7 +772,10 @@ mod tests {
         assert_eq!(output[0].len(), 3);
         assert_eq!(output[0][0], Cell::HBridge(1));
         assert_eq!(output[0][1], Cell::HBridge(2));
-        assert_eq!(output[0][2], Cell::Island(Island::new(DEFAULT_MAX_BRIDGES, 7)));
+        assert_eq!(
+            output[0][2],
+            Cell::Island(Island::new(DEFAULT_MAX_BRIDGES, 7))
+        );
         assert_eq!(output[1].len(), 3);
         assert_eq!(output[1][0], Cell::VBridge(1));
         assert_eq!(output[1][1], Cell::VBridge(2));
