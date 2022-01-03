@@ -19,11 +19,16 @@ route, limiting the number of potential bridges. We can repeatedly
 apply constraints to move towards a solution.
 
 A secondary constraint is that the final network must be connected. We
-cannot create disconnected components. This constraint is applied
-during the other strategy: Case splits. Effectively, when we can't
-make progress with the main strategy, we guess connections and discard
-those that don't work. Creating disconnected components is a "doesn't
-work" case, as well as not having any valid moves remaining.
+cannot create disconnected components.
+
+We keep applying the constraints until we reach a contradiction,
+including disconnected components (in which case we back-track) or
+reach a solution (which we record). If we get stuck, we apply our
+other strategy: Case splits. Effectively, when we can't make progress
+with the main strategy, we guess connections and discard those that
+don't work. Creating disconnected components is a "doesn't work" case,
+as well as not having any valid moves remaining, and we backtrack to
+the last case split.
 
 # How to use it
 
@@ -39,7 +44,7 @@ ignored.
 
 For example, input can like this:
 
-`
+```
 # This is a very, very simple Hashi puzzle.
 
    .....
@@ -49,7 +54,11 @@ For example, input can like this:
    .....
 
 # Goodbye.
-`
+```
+
+Like all nice Rust programs using `clap` for command-line parsing, the
+`--help` option gives command line parameters. By default it expects a
+puzzle on stdin, and writes out all solutions to stdout.
 
 # Performance
 
@@ -60,19 +69,8 @@ example, we scan the full grid each pass to check if it's solved,
 rather than track the current state through a union find algorithm or
 set of currently active nodes or whatever.
 
-# Development notes
+# See also
 
-Current plan:
-
- * -Define data structures-
- * -Build parser/printer-
- * -Add a really basic command-line-
- * -Add code to constrain locally-
- * -Add code to propagate constraints-
- * -Add code to draw in bridges-
- * -Add code to perform case splits-
- * -Add code to check connectedness-
- * -Add some CLI tests-
- * Finalise README.md
-
-Use a fairly TDD approach throughout, use anyhow and clap crates again.
+If you like this, you may also like
+https://github.com/simon-frankau/nonogram-solver, my nonogram
+(picross) solver.
