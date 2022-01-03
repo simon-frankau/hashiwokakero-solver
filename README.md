@@ -72,7 +72,7 @@ Current plan:
  * -Add code to draw in bridges-
  * -Add code to perform case splits-
  * -Add code to check connectedness-
- * Add some CLI tests
+ * -Add some CLI tests-
  * Finalise README.md
 
 Use a fairly TDD approach throughout, use anyhow and clap crates again.
