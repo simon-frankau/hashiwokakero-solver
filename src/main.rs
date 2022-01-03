@@ -138,12 +138,12 @@ impl Island {
 //
 
 // Only constrained at the parsing/printing stage. The algorithm is general.
-const MAX_BRIDGES: usize = 2;
-const MAX_VALENCE: usize = MAX_BRIDGES * 4;
+#[cfg(test)]
+const DEFAULT_MAX_BRIDGES: usize = 2;
 
 impl Cell {
-    fn from_char(c: char) -> Result<Cell> {
-        let max_valence = std::char::from_digit(MAX_VALENCE as u32, 10).unwrap();
+    fn from_char(max_bridges: usize, c: char) -> Result<Cell> {
+        let max_valence = std::char::from_digit((max_bridges * 4) as u32, 10).unwrap();
         match c {
             '.' => Ok(Cell::Empty),
             '-' => Ok(Cell::HBridge(1)),
@@ -151,7 +151,7 @@ impl Cell {
             '|' => Ok(Cell::VBridge(1)),
             'H' => Ok(Cell::VBridge(2)),
             i if '1' <= i && i <= max_valence => Ok(Cell::Island(Island::new(
-                MAX_BRIDGES,
+                max_bridges,
                 i.to_string().parse().unwrap(),
             ))),
             _ => bail!("Unexpected character in input: '{}'", c),
@@ -174,14 +174,17 @@ impl Cell {
     }
 }
 
-fn read_map<'a, Iter: std::iter::Iterator<Item = &'a str>>(lines: Iter) -> Result<Map> {
+fn read_map<'a, Iter: std::iter::Iterator<Item = &'a str>>(max_bridges: usize, lines: Iter) -> Result<Map> {
     let map_lines = lines
         // Trim comments and whitespace
         .map(|s| s.find('#').map_or(s, |idx| &s[..idx]).trim())
         // Filter emptys lines
         .filter(|s| !s.is_empty())
         // Convert a single line
-        .map(|s| s.chars().map(Cell::from_char).collect::<Result<Vec<_>>>())
+        .map(|s| s
+            .chars()
+            .map(|c| Cell::from_char(max_bridges, c))
+            .collect::<Result<Vec<_>>>())
         .collect::<Result<Vec<_>>>()?;
 
     ensure!(!map_lines.is_empty(), "Non-empty input line expected");
@@ -681,7 +684,10 @@ fn main() -> Result<()> {
         "--max_bridges must be 1 or 2"
     );
 
-    let input_map = read_map(read_input(&opts)?.iter().map(String::as_str))?;
+    let input_map = read_map(
+        opts.max_bridges,
+        read_input(&opts)?.iter().map(String::as_str)
+    )?;
 
     let solutions = solve(&input_map);
 
@@ -711,25 +717,25 @@ mod tests {
     #[test]
     fn test_completely_empty_fails() {
         let input: &[&str] = &[];
-        assert!(read_map(input.iter().cloned()).is_err());
+        assert!(read_map(DEFAULT_MAX_BRIDGES, input.iter().cloned()).is_err());
     }
 
     #[test]
     fn test_only_commments_fails() {
         let input: &[&str] = &["  # Test", "# Also test", "    ", ""];
-        assert!(read_map(input.iter().cloned()).is_err());
+        assert!(read_map(DEFAULT_MAX_BRIDGES, input.iter().cloned()).is_err());
     }
 
     #[test]
     fn test_unequal_lines_fails() {
         let input: &[&str] = &[".", ".."];
-        assert!(read_map(input.iter().cloned()).is_err());
+        assert!(read_map(DEFAULT_MAX_BRIDGES, input.iter().cloned()).is_err());
     }
 
     #[test]
     fn test_unexpected_chars_fails() {
         let input: &[&str] = &[".9."];
-        assert!(read_map(input.iter().cloned()).is_err());
+        assert!(read_map(DEFAULT_MAX_BRIDGES, input.iter().cloned()).is_err());
     }
 
     #[test]
@@ -740,12 +746,12 @@ mod tests {
             ("=", Cell::HBridge(2)),
             ("|", Cell::VBridge(1)),
             ("H", Cell::VBridge(2)),
-            ("5", Cell::Island(Island::new(MAX_BRIDGES, 5))),
+            ("5", Cell::Island(Island::new(DEFAULT_MAX_BRIDGES, 5))),
         ]
         .iter()
         {
             let input: &[&str] = &[row];
-            let output = read_map(input.iter().cloned()).unwrap().0;
+            let output = read_map(DEFAULT_MAX_BRIDGES, input.iter().cloned()).unwrap().0;
             assert_eq!(output.len(), 1);
             assert_eq!(output[0].len(), 1);
             assert_eq!(output[0][0], *expected);
@@ -755,12 +761,12 @@ mod tests {
     #[test]
     fn test_small_parse() {
         let input = "-=7\n#TEST\n|H.\n";
-        let output = read_map(input.lines()).unwrap().0;
+        let output = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap().0;
         assert_eq!(output.len(), 2);
         assert_eq!(output[0].len(), 3);
         assert_eq!(output[0][0], Cell::HBridge(1));
         assert_eq!(output[0][1], Cell::HBridge(2));
-        assert_eq!(output[0][2], Cell::Island(Island::new(MAX_BRIDGES, 7)));
+        assert_eq!(output[0][2], Cell::Island(Island::new(DEFAULT_MAX_BRIDGES, 7)));
         assert_eq!(output[1].len(), 3);
         assert_eq!(output[1][0], Cell::VBridge(1));
         assert_eq!(output[1][1], Cell::VBridge(2));
@@ -775,7 +781,7 @@ mod tests {
             (Cell::HBridge(2), "="),
             (Cell::VBridge(1), "|"),
             (Cell::VBridge(2), "H"),
-            (Cell::Island(Island::new(MAX_BRIDGES, 1)), "1"),
+            (Cell::Island(Island::new(DEFAULT_MAX_BRIDGES, 1)), "1"),
             // Check going over into hex
             (Cell::Island(Island::new(42, 15)), "f"),
             // Various cases of "too much"
@@ -797,7 +803,7 @@ mod tests {
             vec![
                 Cell::HBridge(1),
                 Cell::HBridge(2),
-                Cell::Island(Island::new(MAX_BRIDGES, 7)),
+                Cell::Island(Island::new(DEFAULT_MAX_BRIDGES, 7)),
             ],
             vec![Cell::VBridge(1), Cell::VBridge(2), Cell::Empty],
         ]);
@@ -822,7 +828,7 @@ mod tests {
              .3==4.
              ......",
         );
-        let output = display_map(&read_map(input.lines()).unwrap());
+        let output = display_map(&read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap());
         assert_eq!(input, output);
     }
 
@@ -833,7 +839,7 @@ mod tests {
                      ......
                      ......
                      ...2..";
-        let m = read_map(input.lines()).unwrap();
+        let m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         assert_eq!(m.find_neighbour(3, 1, Direction::North), None);
         assert_eq!(m.find_neighbour(3, 1, Direction::South), Some((3, 4)));
@@ -851,7 +857,7 @@ mod tests {
         let input = "...
                      .1.
                      ...";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(1, 1, Direction::East, 1);
     }
 
@@ -861,7 +867,7 @@ mod tests {
         let input = ".....
                      .1=2.
                      .....";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(1, 1, Direction::East, 1);
     }
 
@@ -871,7 +877,7 @@ mod tests {
         let input = "...3...
                      .1.|.2.
                      ...4...";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(1, 1, Direction::East, 1);
     }
 
@@ -880,7 +886,7 @@ mod tests {
         let input = "...3...
                      .1...2.
                      ...4...";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(1, 1, Direction::East, 1);
 
         let expected = spaceless(
@@ -896,7 +902,7 @@ mod tests {
         let input = "...3...
                      .1...2.
                      ...4...";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(3, 0, Direction::South, 1);
 
         let expected = spaceless(
@@ -912,7 +918,7 @@ mod tests {
         let input = "...3...
                      .1---2.
                      ...4...";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(1, 1, Direction::East, 2);
 
         let expected = spaceless(
@@ -928,7 +934,7 @@ mod tests {
         let input = "...3...
                      .1...2.
                      ...4...";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(5, 1, Direction::West, 0);
 
         let expected = spaceless(input);
@@ -940,7 +946,7 @@ mod tests {
         let input = "...3...
                      .1===2.
                      ...4...";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         m.paint_bridge(5, 1, Direction::West, 2);
 
         let expected = spaceless(input);
@@ -954,7 +960,7 @@ mod tests {
                      .....
                      .....
                      .3.1.";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         // Force the max/min values on a couple of island directions..
         *m.get_island_mut(1, 4).bridge_mut(Direction::North) = Range { max: 2, min: 2 };
@@ -976,7 +982,7 @@ mod tests {
     #[test]
     fn test_propagate_constraints_failure() {
         let input = ".3.1.";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         // Force the max/min values on a couple of island directions..
         *m.get_island_mut(1, 0).bridge_mut(Direction::East) = Range { max: 3, min: 3 };
@@ -1106,7 +1112,7 @@ mod tests {
                      ...2.
                      .....
                      1..2.";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         assert!(constrain(&mut m).is_ok());
 
@@ -1125,7 +1131,7 @@ mod tests {
     #[test]
     fn test_solve_simple_no_solution() {
         let input = ".1.";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         assert_eq!(constrain(&mut m), Err(ConstraintSolverFailure::NoSolutions));
     }
@@ -1137,7 +1143,7 @@ mod tests {
                      .2.2.
                      .....
                      .1.2.";
-        let mut m = read_map(input.lines()).unwrap();
+        let mut m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         assert_eq!(constrain(&mut m), Err(ConstraintSolverFailure::Stuck));
     }
@@ -1149,7 +1155,7 @@ mod tests {
                      .2.4.2.
                      .......
                      .1.2.1.";
-        let m = read_map(input.lines()).unwrap();
+        let m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         let sol1 = spaceless(
             ".1-2.1.
@@ -1177,7 +1183,7 @@ mod tests {
     #[test]
     fn test_solve_split_no_solution() {
         let input = ".1.";
-        let m = read_map(input.lines()).unwrap();
+        let m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         assert!(solve(&m).is_empty());
     }
@@ -1190,7 +1196,7 @@ mod tests {
                      .2.2.
                      .....
                      .1.2.";
-        let m = read_map(input.lines()).unwrap();
+        let m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
 
         let expected = spaceless(
             ".2-1.
@@ -1209,7 +1215,7 @@ mod tests {
     fn test_solve_single_component_no_solutions() {
         let input = ".1.1
                      1.1.";
-        let m = read_map(input.lines()).unwrap();
+        let m = read_map(DEFAULT_MAX_BRIDGES, input.lines()).unwrap();
         assert!(solve(&m).is_empty());
     }
 }

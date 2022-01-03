@@ -77,3 +77,29 @@ fn test_cli_parse_error() {
         .stdout("")
         .stderr(predicate::str::contains("Unexpected character in input"));
 }
+
+#[test]
+fn test_cli_max_bridges_1_success() {
+    let expected = std::fs::read_to_string("results/example_single_bridge.txt").unwrap();
+
+    let mut cmd = Command::cargo_bin("hashiwokakero-solver").unwrap();
+
+    cmd.pipe_stdin("examples/example_single_bridge.txt")
+        .unwrap()
+        .arg("--max-bridges=1")
+        .assert()
+        .success()
+        .stdout(expected);
+}
+
+#[test]
+fn test_cli_max_bridges_1_no_solutions() {
+    let mut cmd = Command::cargo_bin("hashiwokakero-solver").unwrap();
+
+    cmd.write_stdin(".2.2.")
+        .arg("--max-bridges=1")
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("No solutions"));
+}

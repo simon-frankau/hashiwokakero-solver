@@ -1,0 +1,8 @@
+# Puzzle with multiple solutions if you allow double bridges, but only
+# a single solution with single bridges.
+
+2.3.2
+.....
+3.4.3
+.....
+2.3.2
