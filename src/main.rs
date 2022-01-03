@@ -4,6 +4,7 @@
 // Copyright 2021 Simon Frankau
 //
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, stdin, stdout, Write};
 
@@ -71,6 +72,18 @@ const ALL_DIRS: &[Direction] = &[
 // The (x, y) steps to move N S W E respectively.
 const DIRECTION_STEPS: &[(isize, isize); 4] = &[(0, -1), (0, 1), (-1, 0), (1, 0)];
 
+#[derive(Debug, Eq, Error, PartialEq)]
+enum ConstraintSolverFailure {
+    // There's some kind of contradiction, meaning no solution is possible.
+    #[error("No solution is possible for this configuration")]
+    NoSolutions,
+    // We can't make further progress. Either this is a tricky case the
+    // constraint solved can't handle, or there are multiple solutions,
+    // meaning we can't find a unique path forwards.
+    #[error("No unique solution can be found by constraint-solving")]
+    Stuck,
+}
+
 impl Direction {
     fn step(&self) -> (isize, isize) {
         DIRECTION_STEPS[*self as usize]
@@ -112,6 +125,9 @@ impl Island {
          &mut self.bridges[dir as usize]
      }
 
+     fn is_complete(&self) -> bool {
+         self.bridges.iter().all(|r| r.min == r.max)
+     }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -251,7 +267,7 @@ impl Map {
             if n_existing == n_bridges {
                 return;
             }
-            // Otherwise, paint and continue.
+            // Otherwise, paint and continue.<
             *cell = brush.clone();
         }
     }
@@ -264,41 +280,95 @@ impl Map {
         }
     }
 
-    fn is_solved(&self) -> bool {
-        // apply_valence_constraints ensures that whatever ranges
-        // there are, there's a valid way to make them sum to the
-        // valence, so all we need to do is check that all ranges of all
-        // islands have converged.
+    // Helper function to is_solved
+    // Returns number of complete components, and incomplete components.
+    fn count_components(&self) -> (usize, usize) {
         let cells = &self.0;
+
+        let mut seen = HashSet::new();
+        let mut complete = 0;
+        let mut incomplete = 0;
+
+        fn aux(
+            map: &Map,
+            x: usize,
+            y: usize,
+            seen: &mut HashSet<(usize, usize)>,
+            is_complete: &mut bool,
+        ) {
+            // Track where we've visited, only process each island once.
+            if seen.contains(&(x, y)) {
+                return;
+            }
+            seen.insert((x, y));
+
+            let cells = &map.0;
+            if let Cell::Island(isle) = &cells[y][x] {
+                // Any incompete island in the component makes the component
+                // incomplete.
+                if !isle.is_complete() {
+                    *is_complete = false;
+                }
+
+                // And recurse to known neighbours.
+                for dir in ALL_DIRS.iter().cloned() {
+                    if isle.bridge(dir).min > 0 {
+                        let (nx, ny) = map.find_neighbour(x, y, dir).unwrap();
+                        aux(map, nx, ny, seen, is_complete);
+                    }
+                }
+            } else {
+                panic!("Expected island!");
+            }
+        }
+
         let (width, height) = (cells[0].len(), cells.len());
         for y in 0..height {
             for x in 0..width {
-                if let Cell::Island(i) = &cells[y][x] {
-                    if !i.bridges.iter().all(|r| r.min == r.max) {
-                        return false;
+                if let Cell::Island(_) = &cells[y][x] {
+                    if !seen.contains(&(x, y)) {
+                        // We have found the root of a new component.
+                        let mut is_complete = true;
+                        aux(self, x, y, &mut seen, &mut is_complete);
+                        if is_complete {
+                            complete += 1;
+                        } else {
+                            incomplete += 1;
+                        }
                     }
                 }
             }
         }
-        true
+
+        (complete, incomplete)
+    }
+
+    // We have a solution if there's a single complete component.
+    // Returns insoluble if there's a complete component and anything
+    // left over, since we can't extend the solution to a single
+    // complete component.
+    fn is_solved(&self) -> Result<bool, ConstraintSolverFailure> {
+        let (complete, incomplete) = self.count_components();
+        let total = complete + incomplete;
+
+        if complete > 0 {
+            // If we have a complete component, it must be unique in order
+            // to have a solution.
+            if total == 1 {
+                Ok(true)
+            } else {
+                Err(ConstraintSolverFailure::NoSolutions)
+            }
+        } else {
+            // No complete component? No solution.
+            Ok(false)
+        }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////
 // Constraining steps
 //
-
-#[derive(Debug, Eq, Error, PartialEq)]
-enum ConstraintSolverFailure {
-    // There's some kind of contradiction, meaning no solution is possible.
-    #[error("No solution is possible for this configuration")]
-    NoSolutions,
-    // We can't make further progress. Either this is a tricky case the
-    // constraint solved can't handle, or there are multiple solutions,
-    // meaning we can't find a unique path forwards.
-    #[error("No unique solution can be found by constraint-solving")]
-    Stuck,
-}
 
 // Propagate constraints across bridges end-points: The min/max at one
 // end of a possible bridge is constrained by the min/max at the other,
@@ -441,7 +511,7 @@ fn constrain_pass(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
 
 // Constrain until a solution or failure or stuckness is reached.
 fn constrain(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
-    while !m.is_solved() {
+    while !m.is_solved()? {
         constrain_pass(m)?;
     }
     Ok(())
@@ -1001,29 +1071,24 @@ mod tests {
 
     #[test]
     fn test_solve_split() {
-        let input = ".2.1.
-                     .....
-                     .2.2.
-                     .....
-                     .1.2.";
+        let input = ".1.2.1.
+                     .......
+                     .2.4.2.
+                     .......
+                     .1.2.1.";
         let m = read_map(input.lines()).unwrap();
 
-        let sol1 = spaceless(".2-1.
-                              .|...
-                              .2-2.
-                              ...|.
-                              .1-2.");
-        let sol2 = spaceless(".2-1.
-                              .|...
-                              .2.2.
-                              .|.H.
-                              .1.2.");
-        let sol3 = spaceless(".2.1.
-                              .H.|.
-                              .2.2.
-                              ...|.
-                              .1-2.");
-        let mut expected = vec![sol1, sol2, sol3];
+        let sol1 = spaceless(".1-2.1.
+                              ...|.|.
+                              .2-4-2.
+                              .|.|...
+                              .1.2-1.");
+        let sol2 = spaceless(".1.2-1.
+                              .|.|...
+                              .2-4-2.
+                              ...|.|.
+                              .1-2.1.");
+        let mut expected = vec![sol1, sol2];
         expected.sort();
 
         let mut actual = solve(&m)
@@ -1040,6 +1105,35 @@ mod tests {
         let input = ".1.";
         let m = read_map(input.lines()).unwrap();
 
-        assert_eq!(solve(&m).len(), 0);
+        assert!(solve(&m).is_empty());
+    }
+
+    #[test]
+    fn test_solve_single_component() {
+        // Check we only get the solution with a single component.
+        let input = ".2.1.
+                     .....
+                     .2.2.
+                     .....
+                     .1.2.";
+        let m = read_map(input.lines()).unwrap();
+
+        let expected = spaceless(".2-1.
+                                  .|...
+                                  .2-2.
+                                  ...|.
+                                  .1-2.");
+
+        let actual = solve(&m);
+        assert_eq!(actual.len(), 1);
+        assert_eq!(display_map(&actual[0]), expected);
+    }
+
+    #[test]
+    fn test_solve_single_component_no_solutions() {
+        let input = ".1.1
+                     1.1.";
+        let m = read_map(input.lines()).unwrap();
+        assert!(solve(&m).is_empty());
     }
 }

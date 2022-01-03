@@ -71,6 +71,6 @@ Current plan:
  * -Add code to propagate constraints-
  * -Add code to draw in bridges-
  * -Add code to perform case splits-
- * Add code to check connectedness
+ * -Add code to check connectedness-
 
 Use a fairly TDD approach throughout, use anyhow and clap crates again.
