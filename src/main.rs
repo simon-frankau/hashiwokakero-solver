@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, stdin, stdout, Write};
+use std::io::{stdin, stdout, BufRead, BufReader, Read, Write};
 
 use anyhow::{bail, ensure, Result};
 use clap::Parser;
@@ -41,8 +41,8 @@ enum Direction {
 // of bridges, and a valence - the total number of bridges it has.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Island {
-   bridges: [Range;4],
-   valence: usize,
+    bridges: [Range; 4],
+    valence: usize,
 }
 
 // A cell in the map may be an island, a bridge (horizontal or
@@ -66,7 +66,7 @@ const ALL_DIRS: &[Direction] = &[
     Direction::North,
     Direction::South,
     Direction::West,
-    Direction::East
+    Direction::East,
 ];
 
 // The (x, y) steps to move N S W E respectively.
@@ -110,24 +110,27 @@ impl Direction {
 }
 
 impl Island {
-     fn new(max_bridges: usize, valence: usize) -> Island {
-         Island {
-             bridges: [Range { min: 0, max: max_bridges }; 4],
-             valence,
-         }
-     }
+    fn new(max_bridges: usize, valence: usize) -> Island {
+        Island {
+            bridges: [Range {
+                min: 0,
+                max: max_bridges,
+            }; 4],
+            valence,
+        }
+    }
 
-     fn bridge(&self, dir: Direction) -> Range {
-         self.bridges[dir as usize]
-     }
+    fn bridge(&self, dir: Direction) -> Range {
+        self.bridges[dir as usize]
+    }
 
-     fn bridge_mut(&mut self, dir: Direction) -> &mut Range {
-         &mut self.bridges[dir as usize]
-     }
+    fn bridge_mut(&mut self, dir: Direction) -> &mut Range {
+        &mut self.bridges[dir as usize]
+    }
 
-     fn is_complete(&self) -> bool {
-         self.bridges.iter().all(|r| r.min == r.max)
-     }
+    fn is_complete(&self) -> bool {
+        self.bridges.iter().all(|r| r.min == r.max)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -147,8 +150,10 @@ impl Cell {
             '=' => Ok(Cell::HBridge(2)),
             '|' => Ok(Cell::VBridge(1)),
             'H' => Ok(Cell::VBridge(2)),
-            i if '1' <= i && i <= max_valence =>
-                Ok(Cell::Island(Island::new(MAX_BRIDGES, i.to_string().parse().unwrap()))),
+            i if '1' <= i && i <= max_valence => Ok(Cell::Island(Island::new(
+                MAX_BRIDGES,
+                i.to_string().parse().unwrap(),
+            ))),
             _ => bail!("Unexpected character in input: '{}'", c),
         }
     }
@@ -161,10 +166,11 @@ impl Cell {
             Cell::HBridge(2) => '=',
             Cell::VBridge(1) => '|',
             Cell::VBridge(2) => 'H',
-            Cell::Island(isle) if isle.valence <= 35 =>
-                std::char::from_digit(isle.valence as u32, 36).unwrap(),
+            Cell::Island(isle) if isle.valence <= 35 => {
+                std::char::from_digit(isle.valence as u32, 36).unwrap()
+            }
             _ => '?',
-       }
+        }
     }
 }
 
@@ -180,8 +186,10 @@ fn read_map<'a, Iter: std::iter::Iterator<Item = &'a str>>(lines: Iter) -> Resul
 
     ensure!(!map_lines.is_empty(), "Non-empty input line expected");
     let width = map_lines[0].len();
-    ensure!(map_lines.iter().all(|row| row.len() == width),
-        "Not all input lines were of the same length. Rectangular input expected.");
+    ensure!(
+        map_lines.iter().all(|row| row.len() == width),
+        "Not all input lines were of the same length. Rectangular input expected."
+    );
 
     Ok(Map(map_lines))
 }
@@ -191,9 +199,11 @@ fn read_map<'a, Iter: std::iter::Iterator<Item = &'a str>>(lines: Iter) -> Resul
 // NB: Lossy - just prints enough to display results - internal
 // constraint information is not displayed.
 fn display_map(map: &Map) -> String {
-   map.0.iter().map(|row| {
-       row.iter().map(|c| c.to_char()).collect::<String>()
-   }).collect::<Vec<_>>().join("\n")
+    map.0
+        .iter()
+        .map(|row| row.iter().map(|c| c.to_char()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -221,12 +231,16 @@ impl Map {
                 return None;
             }
             match cells[idx_y as usize][idx_x as usize] {
-                Cell::HBridge(_) => if dir.is_vertical() {
-                    return None;
-                },
-                Cell::VBridge(_) => if dir.is_horizontal() {
-                    return None;
-                },
+                Cell::HBridge(_) => {
+                    if dir.is_vertical() {
+                        return None;
+                    }
+                }
+                Cell::VBridge(_) => {
+                    if dir.is_horizontal() {
+                        return None;
+                    }
+                }
                 Cell::Island(_) => return Some((idx_x as usize, idx_y as usize)),
                 Cell::Empty => (),
             }
@@ -379,16 +393,22 @@ impl<'a> IslandIterator<'a> {
     fn new(map: &'a Map) -> IslandIterator<'a> {
         let cells = &map.0;
         let (width, height) = (cells[0].len(), cells.len());
-        IslandIterator { map, width, height, x: 0, y: 0 }
+        IslandIterator {
+            map,
+            width,
+            height,
+            x: 0,
+            y: 0,
+        }
     }
 
     fn step(&mut self) {
-       self.x += 1;
-       if self.x >= self.width {
-           self.x = 0;
-           self.y += 1;
-       }
-   }
+        self.x += 1;
+        if self.x >= self.width {
+            self.x = 0;
+            self.y += 1;
+        }
+    }
 }
 
 impl<'a> Iterator for IslandIterator<'a> {
@@ -443,15 +463,15 @@ fn propagate_constraints(m: &mut Map, x: usize, y: usize) -> Result<(), Constrai
 // bridge endpoints - returns a list of allocations such that the
 // value for each endpoint is between min and max, and they sum to the
 // valence.
-fn generate_distributions(isle: &Island) -> Vec<[usize;4]> {
+fn generate_distributions(isle: &Island) -> Vec<[usize; 4]> {
     // There's no clean way to make recursive closures, so we live with
     // a nested function and passing all variables explicitly.
     fn aux(
         isle: &Island,
-        acc: &mut Vec<[usize;4]>,
+        acc: &mut Vec<[usize; 4]>,
         mut curr: [usize; 4],
         idx: usize,
-        remaining: usize
+        remaining: usize,
     ) {
         if idx == 4 {
             if remaining == 0 {
@@ -592,10 +612,10 @@ fn accumulate_solutions(mut map: Map, solutions: &mut Vec<Map>) {
             for n in range.min..=range.max {
                 let mut new_map = map.clone();
                 let bridge = new_map.get_island_mut(x, y).bridge_mut(dir);
-                 *bridge = Range { min: n, max: n };
+                *bridge = Range { min: n, max: n };
                 accumulate_solutions(new_map, solutions);
             }
-        },
+        }
     }
 }
 
@@ -631,11 +651,13 @@ fn read_input(opts: &Opts) -> Result<Vec<String>> {
         None => Box::new(stdin()),
     };
 
-    Ok(BufReader::new(file).lines().collect::<Result<Vec<_>, _>>()?)
+    Ok(BufReader::new(file)
+        .lines()
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 fn write_output(opts: &Opts, s: &str) -> Result<()> {
-   let mut file: Box<dyn Write> = match &opts.output_file {
+    let mut file: Box<dyn Write> = match &opts.output_file {
         Some(name) => Box::new(File::create(name)?),
         None => Box::new(stdout()),
     };
@@ -643,11 +665,13 @@ fn write_output(opts: &Opts, s: &str) -> Result<()> {
     Ok(file.write_all(s.as_bytes())?)
 }
 
-fn main() -> Result<()>{
+fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
 
-    ensure!(1 <= opts.max_bridges && opts.max_bridges <= 2,
-        "--max_bridges must be 1 or 2");
+    ensure!(
+        1 <= opts.max_bridges && opts.max_bridges <= 2,
+        "--max_bridges must be 1 or 2"
+    );
 
     let input_map = read_map(read_input(&opts)?.iter().map(String::as_str))?;
 
@@ -703,7 +727,9 @@ mod tests {
             ("|", Cell::VBridge(1)),
             ("H", Cell::VBridge(2)),
             ("5", Cell::Island(Island::new(MAX_BRIDGES, 5))),
-        ].iter() {
+        ]
+        .iter()
+        {
             let input: &[&str] = &[row];
             let output = read_map(input.iter().cloned()).unwrap().0;
             assert_eq!(output.len(), 1);
@@ -742,7 +768,9 @@ mod tests {
             (Cell::Island(Island::new(42, 150)), "?"),
             (Cell::HBridge(10), "?"),
             (Cell::VBridge(10), "?"),
-        ].iter() {
+        ]
+        .iter()
+        {
             let input = Map(vec![vec![cell.clone()]]);
             let output = display_map(&input);
             assert_eq!(&output, expected);
@@ -757,28 +785,29 @@ mod tests {
                 Cell::HBridge(2),
                 Cell::Island(Island::new(MAX_BRIDGES, 7)),
             ],
-            vec![
-                Cell::VBridge(1),
-                Cell::VBridge(2),
-                Cell::Empty,
-            ],
+            vec![Cell::VBridge(1), Cell::VBridge(2), Cell::Empty],
         ]);
         let output = display_map(&input);
         assert_eq!(output, "-=7\n|H.");
     }
 
     fn spaceless(s: &str) -> String {
-        s.to_string().chars().filter(|c| *c != ' ').collect::<String>()
+        s.to_string()
+            .chars()
+            .filter(|c| *c != ' ')
+            .collect::<String>()
     }
 
     #[test]
     fn test_parse_print_round_trip() {
         // remove_matches is currently only in nightly.
-        let input = spaceless("......
-                               .1--2.
-                               .|..H.
-                               .3==4.
-                               ......");
+        let input = spaceless(
+            "......
+             .1--2.
+             .|..H.
+             .3==4.
+             ......",
+        );
         let output = display_map(&read_map(input.lines()).unwrap());
         assert_eq!(input, output);
     }
@@ -822,7 +851,6 @@ mod tests {
         m.paint_bridge(1, 1, Direction::East, 1);
     }
 
-
     #[test]
     #[should_panic]
     fn test_paint_crossing_fails() {
@@ -841,9 +869,11 @@ mod tests {
         let mut m = read_map(input.lines()).unwrap();
         m.paint_bridge(1, 1, Direction::East, 1);
 
-        let expected = spaceless("...3...
-                                  .1---2.
-                                  ...4...");
+        let expected = spaceless(
+            "...3...
+             .1---2.
+             ...4...",
+        );
         assert_eq!(display_map(&m), expected);
     }
 
@@ -855,9 +885,11 @@ mod tests {
         let mut m = read_map(input.lines()).unwrap();
         m.paint_bridge(3, 0, Direction::South, 1);
 
-        let expected = spaceless("...3...
-                                  .1.|.2.
-                                  ...4...");
+        let expected = spaceless(
+            "...3...
+             .1.|.2.
+             ...4...",
+        );
         assert_eq!(display_map(&m), expected);
     }
 
@@ -869,9 +901,11 @@ mod tests {
         let mut m = read_map(input.lines()).unwrap();
         m.paint_bridge(1, 1, Direction::East, 2);
 
-        let expected = spaceless("...3...
-                                  .1===2.
-                                  ...4...");
+        let expected = spaceless(
+            "...3...
+             .1===2.
+             ...4...",
+        );
         assert_eq!(display_map(&m), expected);
     }
 
@@ -994,9 +1028,9 @@ mod tests {
                 Range { min: 0, max: 0 },
                 Range { min: 0, max: 0 },
                 Range { min: 1, max: 2 },
-                Range { min: 1, max: 2 }
+                Range { min: 1, max: 2 },
             ],
-            valence: 3
+            valence: 3,
         };
         assert_eq!(&isle, &expected);
 
@@ -1022,9 +1056,9 @@ mod tests {
                 Range { min: 0, max: 0 },
                 Range { min: 0, max: 0 },
                 Range { min: 1, max: 1 },
-                Range { min: 2, max: 2 }
+                Range { min: 2, max: 2 },
             ],
-            valence: 3
+            valence: 3,
         };
         assert_eq!(&isle, &expected);
 
@@ -1062,13 +1096,15 @@ mod tests {
 
         assert!(constrain(&mut m).is_ok());
 
-        let expected = spaceless(".3--1
-                                  .H...
-                                  .3-2.
-                                  ...|.
-                                  ...2.
-                                  ...|.
-                                  1--2.");
+        let expected = spaceless(
+            ".3--1
+             .H...
+             .3-2.
+             ...|.
+             ...2.
+             ...|.
+             1--2.",
+        );
         assert_eq!(display_map(&m), expected);
     }
 
@@ -1077,8 +1113,7 @@ mod tests {
         let input = ".1.";
         let mut m = read_map(input.lines()).unwrap();
 
-        assert_eq!(constrain(&mut m),
-            Err(ConstraintSolverFailure::NoSolutions));
+        assert_eq!(constrain(&mut m), Err(ConstraintSolverFailure::NoSolutions));
     }
 
     #[test]
@@ -1090,8 +1125,7 @@ mod tests {
                      .1.2.";
         let mut m = read_map(input.lines()).unwrap();
 
-        assert_eq!(constrain(&mut m),
-            Err(ConstraintSolverFailure::Stuck));
+        assert_eq!(constrain(&mut m), Err(ConstraintSolverFailure::Stuck));
     }
 
     #[test]
@@ -1103,23 +1137,24 @@ mod tests {
                      .1.2.1.";
         let m = read_map(input.lines()).unwrap();
 
-        let sol1 = spaceless(".1-2.1.
-                              ...|.|.
-                              .2-4-2.
-                              .|.|...
-                              .1.2-1.");
-        let sol2 = spaceless(".1.2-1.
-                              .|.|...
-                              .2-4-2.
-                              ...|.|.
-                              .1-2.1.");
+        let sol1 = spaceless(
+            ".1-2.1.
+             ...|.|.
+             .2-4-2.
+             .|.|...
+             .1.2-1.",
+        );
+        let sol2 = spaceless(
+            ".1.2-1.
+             .|.|...
+             .2-4-2.
+             ...|.|.
+             .1-2.1.",
+        );
         let mut expected = vec![sol1, sol2];
         expected.sort();
 
-        let mut actual = solve(&m)
-            .iter()
-            .map(display_map)
-            .collect::<Vec<String>>();
+        let mut actual = solve(&m).iter().map(display_map).collect::<Vec<String>>();
         actual.sort();
 
         assert_eq!(expected, actual);
@@ -1143,11 +1178,13 @@ mod tests {
                      .1.2.";
         let m = read_map(input.lines()).unwrap();
 
-        let expected = spaceless(".2-1.
-                                  .|...
-                                  .2-2.
-                                  ...|.
-                                  .1-2.");
+        let expected = spaceless(
+            ".2-1.
+             .|...
+             .2-2.
+             ...|.
+             .1-2.",
+        );
 
         let actual = solve(&m);
         assert_eq!(actual.len(), 1);
