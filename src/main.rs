@@ -200,6 +200,14 @@ fn display_map(map: &Map) -> String {
 // Operations on the map
 //
 
+struct IslandIterator<'a> {
+    map: &'a Map,
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+}
+
 impl Map {
     fn find_neighbour(&self, x: usize, y: usize, dir: Direction) -> Option<(usize, usize)> {
         let cells = &self.0;
@@ -272,7 +280,15 @@ impl Map {
         }
     }
 
-    fn get_island(&mut self, x: usize, y: usize) -> &mut Island {
+    fn get_island(&self, x: usize, y: usize) -> &Island {
+        if let Cell::Island(ref isle) = self.0[y][x] {
+            isle
+        } else {
+            panic!("Expected island at ({}, {})", x, y);
+        }
+    }
+
+    fn get_island_mut(&mut self, x: usize, y: usize) -> &mut Island {
         if let Cell::Island(ref mut isle) = self.0[y][x] {
             isle
         } else {
@@ -280,11 +296,9 @@ impl Map {
         }
     }
 
-    // Helper function to is_solved
+    // Helper function to is_solved.
     // Returns number of complete components, and incomplete components.
     fn count_components(&self) -> (usize, usize) {
-        let cells = &self.0;
-
         let mut seen = HashSet::new();
         let mut complete = 0;
         let mut incomplete = 0;
@@ -302,40 +316,31 @@ impl Map {
             }
             seen.insert((x, y));
 
-            let cells = &map.0;
-            if let Cell::Island(isle) = &cells[y][x] {
-                // Any incompete island in the component makes the component
-                // incomplete.
-                if !isle.is_complete() {
-                    *is_complete = false;
-                }
+            // Any incompete island in the component makes the component
+            // incomplete.
+            let isle = map.get_island(x, y);
+            if !isle.is_complete() {
+                *is_complete = false;
+            }
 
-                // And recurse to known neighbours.
-                for dir in ALL_DIRS.iter().cloned() {
-                    if isle.bridge(dir).min > 0 {
-                        let (nx, ny) = map.find_neighbour(x, y, dir).unwrap();
-                        aux(map, nx, ny, seen, is_complete);
-                    }
+            // And recurse to known neighbours.
+            for dir in ALL_DIRS.iter().cloned() {
+                if isle.bridge(dir).min > 0 {
+                    let (nx, ny) = map.find_neighbour(x, y, dir).unwrap();
+                    aux(map, nx, ny, seen, is_complete);
                 }
-            } else {
-                panic!("Expected island!");
             }
         }
 
-        let (width, height) = (cells[0].len(), cells.len());
-        for y in 0..height {
-            for x in 0..width {
-                if let Cell::Island(_) = &cells[y][x] {
-                    if !seen.contains(&(x, y)) {
-                        // We have found the root of a new component.
-                        let mut is_complete = true;
-                        aux(self, x, y, &mut seen, &mut is_complete);
-                        if is_complete {
-                            complete += 1;
-                        } else {
-                            incomplete += 1;
-                        }
-                    }
+        for (x, y) in self.island_iter() {
+            if !seen.contains(&(x, y)) {
+                // We have found the root of a new component.
+                let mut is_complete = true;
+                aux(self, x, y, &mut seen, &mut is_complete);
+                if is_complete {
+                    complete += 1;
+                } else {
+                    incomplete += 1;
                 }
             }
         }
@@ -364,6 +369,43 @@ impl Map {
             Ok(false)
         }
     }
+
+    fn island_iter(&self) -> IslandIterator {
+        IslandIterator::new(self)
+    }
+}
+
+impl<'a> IslandIterator<'a> {
+    fn new(map: &'a Map) -> IslandIterator<'a> {
+        let cells = &map.0;
+        let (width, height) = (cells[0].len(), cells.len());
+        IslandIterator { map, width, height, x: 0, y: 0 }
+    }
+
+    fn step(&mut self) {
+       self.x += 1;
+       if self.x >= self.width {
+           self.x = 0;
+           self.y += 1;
+       }
+   }
+}
+
+impl<'a> Iterator for IslandIterator<'a> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.y >= self.height {
+                return None;
+            }
+            let (x, y) = (self.x, self.y);
+            self.step();
+            if let Cell::Island(_) = self.map.0[y][x] {
+                return Some((x, y));
+            }
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -381,7 +423,7 @@ fn propagate_constraints(m: &mut Map, x: usize, y: usize) -> Result<(), Constrai
             None => Range { min: 0, max: 0 },
         };
 
-        let mut near_range = m.get_island(x, y).bridge_mut(*dir);
+        let mut near_range = m.get_island_mut(x, y).bridge_mut(*dir);
 
         // Min bridges only ratchets up with constraints, max bridges
         // ratchets down.
@@ -467,7 +509,7 @@ fn constrain_island(m: &mut Map, x: usize, y: usize) -> Result<bool, ConstraintS
     let before = m.get_island(x, y).clone();
 
     propagate_constraints(m, x, y)?;
-    let island = m.get_island(x, y);
+    let island = m.get_island_mut(x, y);
     apply_valence_constraints(island)?;
 
     let changed = *island != before;
@@ -492,14 +534,10 @@ fn constrain_island(m: &mut Map, x: usize, y: usize) -> Result<bool, ConstraintS
 fn constrain_pass(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
     let mut progress = false;
 
-    let cells = &m.0;
-    let (width, height) = (cells[0].len(), cells.len());
-    for y in 0..height {
-        for x in 0..width {
-            if let Cell::Island(_) = m.0[y][x] {
-                progress |= constrain_island(m, x, y)?;
-            }
-        }
+    // Make a copy as constrain_island updates the map.
+    let islands = m.island_iter().collect::<Vec<_>>();
+    for (x, y) in islands.iter() {
+        progress |= constrain_island(m, *x, *y)?;
     }
 
     if !progress {
@@ -523,18 +561,13 @@ fn constrain(m: &mut Map) -> Result<(), ConstraintSolverFailure> {
 //
 // Returns (x, y, dir) to do the case split on.
 fn choose_case_split(m: &Map) -> (usize, usize, Direction) {
-    let cells = &m.0;
-    let (width, height) = (cells[0].len(), cells.len());
-    for y in 0..height {
-        for x in 0..width {
-            if let Cell::Island(isle) = &m.0[y][x] {
-                for dir in ALL_DIRS.iter() {
-                    let range = isle.bridge(*dir);
-                    if range.min != range.max {
-                        // Multiple possibilities, can perform case split here.
-                        return (x, y, *dir);
-                    }
-                }
+    for (x, y) in m.island_iter() {
+        let isle = m.get_island(x, y);
+        for dir in ALL_DIRS.iter() {
+            let range = isle.bridge(*dir);
+            if range.min != range.max {
+                // Multiple possibilities, can perform case split here.
+                return (x, y, *dir);
             }
         }
     }
@@ -555,21 +588,13 @@ fn accumulate_solutions(mut map: Map, solutions: &mut Vec<Map>) {
         Err(ConstraintSolverFailure::NoSolutions) => (),
         Err(ConstraintSolverFailure::Stuck) => {
             let (x, y, dir) = choose_case_split(&map);
-            if let Cell::Island(isle) = &map.0[y][x] {
-                let range = isle.bridge(dir);
-                for n in range.min..=range.max {
-                    let mut new_map = map.clone();
-                    if let Cell::Island(isle2) = &mut new_map.0[y][x] {
-                        let bridge = isle2.bridge_mut(dir);
-                         *bridge = Range { min: n, max: n };
-                        accumulate_solutions(new_map, solutions);
-                    } else {
-                        panic!("Expected Island in new map");
-                    }
-                }
-            } else {
-                panic!("Expected Island in old map");
-           }
+            let range = map.get_island(x, y).bridge(dir);
+            for n in range.min..=range.max {
+                let mut new_map = map.clone();
+                let bridge = new_map.get_island_mut(x, y).bridge_mut(dir);
+                 *bridge = Range { min: n, max: n };
+                accumulate_solutions(new_map, solutions);
+            }
         },
     }
 }
@@ -884,8 +909,8 @@ mod tests {
         let mut m = read_map(input.lines()).unwrap();
 
         // Force the max/min values on a couple of island directions..
-        *m.get_island(1, 4).bridge_mut(Direction::North) = Range { max: 2, min: 2 };
-        *m.get_island(3, 1).bridge_mut(Direction::West) = Range { min: 0, max: 1 };
+        *m.get_island_mut(1, 4).bridge_mut(Direction::North) = Range { max: 2, min: 2 };
+        *m.get_island_mut(3, 1).bridge_mut(Direction::West) = Range { min: 0, max: 1 };
 
         // Propagate these values...
         propagate_constraints(&mut m, 1, 1)?;
@@ -906,8 +931,8 @@ mod tests {
         let mut m = read_map(input.lines()).unwrap();
 
         // Force the max/min values on a couple of island directions..
-        *m.get_island(1, 0).bridge_mut(Direction::East) = Range { max: 3, min: 3 };
-        *m.get_island(3, 0).bridge_mut(Direction::West) = Range { min: 1, max: 1 };
+        *m.get_island_mut(1, 0).bridge_mut(Direction::East) = Range { max: 3, min: 3 };
+        *m.get_island_mut(3, 0).bridge_mut(Direction::West) = Range { min: 1, max: 1 };
 
         // Propagate these values. Should fail.
         match propagate_constraints(&mut m, 1, 0) {
